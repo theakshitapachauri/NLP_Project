@@ -16,7 +16,7 @@
 """
 Fine-tuning a 🤗 Transformers model on text translation.
 """
-#Importing Libraries
+# You can also adapt this script on your own text translation task. Pointers for this are left as comments.
 
 import argparse
 import json
@@ -221,7 +221,7 @@ def parse_args():
     parser.add_argument(
         "--lr_scheduler_type",
         type=SchedulerType,
-        default="linear",
+        default="constant",
         help="The scheduler type to use.",
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
     )
@@ -536,8 +536,7 @@ def main():
         experiment_config["lr_scheduler_type"] = experiment_config["lr_scheduler_type"].value
         accelerator.init_trackers("translation_no_trainer", experiment_config)
 
-    bleu = load_metric("sacrebleu")
-    EM = load_metric("exact_match")
+    metric = load_metric("sacrebleu")
 
     def postprocess_text(preds, labels):
         preds = [pred.strip() for pred in preds]
@@ -583,6 +582,7 @@ def main():
         if args.with_tracking:
             total_loss = 0
         for step, batch in enumerate(train_dataloader):
+            torch.cuda.empty_cache()
             # We need to skip steps until we reach the resumed step
             if args.resume_from_checkpoint and epoch == 0 and step < resume_step:
                 continue
@@ -627,8 +627,10 @@ def main():
             "num_beams": args.num_beams,
         }
         samples_seen = 0
+        my_decoded_preds = []
         for step, batch in enumerate(eval_dataloader):
             with torch.no_grad():
+                torch.cuda.empty_cache()
                 generated_tokens = accelerator.unwrap_model(model).generate(
                     batch["input_ids"],
                     attention_mask=batch["attention_mask"],
@@ -662,29 +664,28 @@ def main():
                         decoded_labels = decoded_labels[: len(eval_dataloader.dataset) - samples_seen]
                     else:
                         samples_seen += decoded_labels.shape[0]
-
-                bleu.add_batch(predictions=decoded_preds, references=decoded_labels)
-                EM.add_batch(predictions=decoded_preds, references=decoded_labels)
-
-        # eval_metric = metric.compute()
-        eval_bleu = bleu.compute()
-        eval_EM = EM.compute()
-
-        logger.info({"bleu": eval_bleu["score"]})
-        logger.info({"Exact match": eval_EM["score"]})
+                for dpred in decoded_preds:
+                    my_decoded_preds.append(dpred)
+                  
+                metric.add_batch(predictions=decoded_preds, references=decoded_labels)
+        file1 = open("pred_example.txt", "w")
+        for dpred in my_decoded_preds:
+            file1.writelines(dpred)
+            if dpred != decoded_preds[-1]:
+                file1.writelines("\n")
+        file1.close()
+        eval_metric = metric.compute()
+        logger.info({"bleu": eval_metric["score"]})
         wandb.log(
             {
-                "eval/bleu": eval_bleu["score"],
-                "eval/EM": eval_EM["score"],
+                "eval/bleu": eval_metric["score"],
                 #"eval/generation_length": eval_results["generation_length"],
             },
             step=completed_steps,
         )
         if args.with_tracking:
             accelerator.log(
-                {"bleu": eval_bleu["score"], "train_loss": total_loss, "epoch": epoch, "step": completed_steps},
-                {"Exact match": eval_EM["score"], "train_loss": total_loss, "epoch": epoch, "step": completed_steps},
-
+                {"blue": eval_metric["score"], "train_loss": total_loss, "epoch": epoch, "step": completed_steps},
             )
 
         # if args.push_to_hub and epoch < args.num_train_epochs - 1:
@@ -712,9 +713,8 @@ def main():
             #if args.push_to_hub:
             #    repo.push_to_hub(commit_message="End of training", auto_lfs_prune=True)
         with open(os.path.join(args.output_dir, "all_results.json"), "w") as f:
-            json.dump({"eval_bleu": eval_bleu["score"]}, f)
-            json.dump({"eval_Exact_Match": eval_EM["score"]},f)
-        wandb.save(os.path.join(args.output_dir, "*"))
+            json.dump({"eval_bleu": eval_metric["score"]}, f)
+        #wandb.save(os.path.join(args.output_dir, "*"))
 
 
 if __name__ == "__main__":
