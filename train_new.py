@@ -16,8 +16,7 @@
 """
 Fine-tuning a 🤗 Transformers model on text translation.
 """
-# You can also adapt this script on your own text translation task. Pointers for this are left as comments.
-
+#Importing Libraries
 import argparse
 import json
 import logging
@@ -57,7 +56,7 @@ from transformers.utils.versions import require_version
 
 
 logger = logging.getLogger(__name__)
-require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/translation/requirements.txt")
+require_version("datasets>=1.8.0", "To fix: pip install -r requirements.txt")
 
 # You should update this to your particular problem to have better documentation of `model_type`
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
@@ -67,7 +66,7 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 # Parsing input arguments
 def parse_args():
 
-    parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
+    parser = argparse.ArgumentParser(description="Finetune a transformers model on Text 2 SQL task with SPIDER dataset")
     parser.add_argument(
         "--dataset_name",
         type=str,
