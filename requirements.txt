@@ -5,3 +5,6 @@ wandb
 transformers
 matplotlib
 sacrebleu
+accelerate
+nltk
+sqlparse
