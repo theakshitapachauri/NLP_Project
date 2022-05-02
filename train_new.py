@@ -73,7 +73,7 @@ def parse_args():
     parser.add_argument(
         "--dataset_name",
         type=str,
-        default=None,
+        default='spider',
         help="The name of the dataset to use (via the datasets library).",
     )
     parser.add_argument(
