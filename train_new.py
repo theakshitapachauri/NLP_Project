@@ -65,17 +65,19 @@ require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/tran
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
+dataset = load_dataset("spider")
+
 
 # Parsing input arguments
 def parse_args():
 
-    parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
-    parser.add_argument(
-        "--dataset_name",
-        type=str,
-        default='./datasets/spider',
-        help="The name of the dataset to use (via the datasets library).",
-    )
+    # parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
+    # parser.add_argument(
+    #     "--dataset_name",
+    #     type=str,
+    #     default='./datasets/spider',
+    #     help="The name of the dataset to use (via the datasets library).",
+    # )
     parser.add_argument(
         "--predict_with_generate",
         type=bool,
