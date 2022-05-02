@@ -65,13 +65,13 @@ require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/tran
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
 MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 
-dataset = load_dataset("spider")
+dataset_name = load_dataset("spider")
 
 
 # Parsing input arguments
 def parse_args():
 
-    # parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
+    parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
     # parser.add_argument(
     #     "--dataset_name",
     #     type=str,
@@ -277,7 +277,7 @@ def parse_args():
     args = parser.parse_args()
 
     # Sanity checks
-    if args.dataset_name is None and args.train_file is None and args.validation_file is None:
+    if dataset_name is None and args.train_file is None and args.validation_file is None:
         raise ValueError("Need either a task name or a training/validation file.")
 
     if args.train_file is not None:
@@ -353,9 +353,9 @@ def main():
     #
     # In distributed training, the load_dataset function guarantee that only one local process can concurrently
     # download the dataset.
-    if args.dataset_name is not None:
+    if dataset_name is not None:
         # Downloading and loading a dataset from the hub.
-        raw_datasets = load_dataset(args.dataset_name, args.dataset_config_name)
+        raw_datasets = load_dataset(dataset_name, args.dataset_config_name)
     else:
         data_files = {}
         if args.train_file is not None:
