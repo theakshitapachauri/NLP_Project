@@ -16,7 +16,8 @@
 """
 Fine-tuning a 🤗 Transformers model on text translation.
 """
-#Importing Libraries
+# You can also adapt this script on your own text translation task. Pointers for this are left as comments.
+
 import argparse
 import json
 import logging
@@ -54,9 +55,11 @@ from transformers import (
 #from transformers.utils import get_full_repo_name
 from transformers.utils.versions import require_version
 
+from tokenizers import AddedToken
+
 
 logger = logging.getLogger(__name__)
-require_version("datasets>=1.8.0", "To fix: pip install -r requirements.txt")
+require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/translation/requirements.txt")
 
 # You should update this to your particular problem to have better documentation of `model_type`
 MODEL_CONFIG_CLASSES = list(MODEL_MAPPING.keys())
@@ -66,7 +69,7 @@ MODEL_TYPES = tuple(conf.model_type for conf in MODEL_CONFIG_CLASSES)
 # Parsing input arguments
 def parse_args():
 
-    parser = argparse.ArgumentParser(description="Finetune a transformers model on Text 2 SQL task with SPIDER dataset")
+    parser = argparse.ArgumentParser(description="Finetune a transformers model on a text classification task")
     parser.add_argument(
         "--dataset_name",
         type=str,
@@ -216,6 +219,12 @@ def parse_args():
         type=int,
         default=1,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
+    )
+    parser.add_argument(
+        "--eval_every_step",
+        type=int,
+        default=1,
+        help="Number of steps before eval runs.",
     )
     parser.add_argument(
         "--lr_scheduler_type",
@@ -377,7 +386,7 @@ def main():
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
             "You can do it from another script, save it, and load it from here, using --tokenizer_name."
         )
-
+    tokenizer.add_tokens([AddedToken(" <="), AddedToken(" <")])
     if args.model_name_or_path:
         model = AutoModelForSeq2SeqLM.from_pretrained(
             args.model_name_or_path,
@@ -625,83 +634,84 @@ def main():
             "max_length": args.val_max_target_length if args is not None else config.max_length,
             "num_beams": args.num_beams,
         }
-        samples_seen = 0
-        my_decoded_preds = []
-        for step, batch in enumerate(eval_dataloader):
-            with torch.no_grad():
-                torch.cuda.empty_cache()
-                generated_tokens = accelerator.unwrap_model(model).generate(
-                    batch["input_ids"],
-                    attention_mask=batch["attention_mask"],
-                    **gen_kwargs,
-                )
+        if epoch % args.eval_every_step == 0:
+            samples_seen = 0
+            my_decoded_preds = []
+            for step, batch in enumerate(eval_dataloader):
+                with torch.no_grad():
+                    torch.cuda.empty_cache()
+                    generated_tokens = accelerator.unwrap_model(model).generate(
+                        batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                        **gen_kwargs,
+                    )
 
-                generated_tokens = accelerator.pad_across_processes(
-                    generated_tokens, dim=1, pad_index=tokenizer.pad_token_id
-                )
-                labels = batch["labels"]
-                if not args.pad_to_max_length:
-                    # If we did not pad to max length, we need to pad the labels too
-                    labels = accelerator.pad_across_processes(batch["labels"], dim=1, pad_index=tokenizer.pad_token_id)
+                    generated_tokens = accelerator.pad_across_processes(
+                        generated_tokens, dim=1, pad_index=tokenizer.pad_token_id
+                    )
+                    labels = batch["labels"]
+                    if not args.pad_to_max_length:
+                        # If we did not pad to max length, we need to pad the labels too
+                        labels = accelerator.pad_across_processes(batch["labels"], dim=1, pad_index=tokenizer.pad_token_id)
 
-                generated_tokens = accelerator.gather(generated_tokens).cpu().numpy()
-                labels = accelerator.gather(labels).cpu().numpy()
+                    generated_tokens = accelerator.gather(generated_tokens).cpu().numpy()
+                    labels = accelerator.gather(labels).cpu().numpy()
 
-                if args.ignore_pad_token_for_loss:
-                    # Replace -100 in the labels as we can't decode them.
-                    labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+                    if args.ignore_pad_token_for_loss:
+                        # Replace -100 in the labels as we can't decode them.
+                        labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
 
-                decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-                decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+                    decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+                    decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-                decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+                    decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
 
-                # If we are in a multiprocess environment, the last batch has duplicates
-                if accelerator.num_processes > 1:
-                    if step == len(eval_dataloader):
-                        decoded_preds = decoded_preds[: len(eval_dataloader.dataset) - samples_seen]
-                        decoded_labels = decoded_labels[: len(eval_dataloader.dataset) - samples_seen]
-                    else:
-                        samples_seen += decoded_labels.shape[0]
-                for dpred in decoded_preds:
-                    my_decoded_preds.append(dpred)
-                  
-                metric.add_batch(predictions=decoded_preds, references=decoded_labels)
-        file1 = open("pred_example.txt", "w")
-        for dpred in my_decoded_preds:
-            file1.writelines(dpred)
-            if dpred != decoded_preds[-1]:
-                file1.writelines("\n")
-        file1.close()
-        eval_metric = metric.compute()
-        logger.info({"bleu": eval_metric["score"]})
-        wandb.log(
-            {
-                "eval/bleu": eval_metric["score"],
-                #"eval/generation_length": eval_results["generation_length"],
-            },
-            step=completed_steps,
-        )
-        if args.with_tracking:
-            accelerator.log(
-                {"blue": eval_metric["score"], "train_loss": total_loss, "epoch": epoch, "step": completed_steps},
+                    # If we are in a multiprocess environment, the last batch has duplicates
+                    if accelerator.num_processes > 1:
+                        if step == len(eval_dataloader):
+                            decoded_preds = decoded_preds[: len(eval_dataloader.dataset) - samples_seen]
+                            decoded_labels = decoded_labels[: len(eval_dataloader.dataset) - samples_seen]
+                        else:
+                            samples_seen += decoded_labels.shape[0]
+                    for dpred in decoded_preds:
+                        my_decoded_preds.append(dpred)
+
+                    metric.add_batch(predictions=decoded_preds, references=decoded_labels)
+            file1 = open("pred_example.txt", "w")
+            for dpred in my_decoded_preds:
+                file1.writelines(dpred)
+                if dpred != decoded_preds[-1]:
+                    file1.writelines("\n")
+            file1.close()
+            eval_metric = metric.compute()
+            logger.info({"bleu": eval_metric["score"]})
+            wandb.log(
+                {
+                    "eval/bleu": eval_metric["score"],
+                    #"eval/generation_length": eval_results["generation_length"],
+                },
+                step=completed_steps,
             )
+            if args.with_tracking:
+                accelerator.log(
+                    {"blue": eval_metric["score"], "train_loss": total_loss, "epoch": epoch, "step": completed_steps},
+                )
 
-        # if args.push_to_hub and epoch < args.num_train_epochs - 1:
-        #     accelerator.wait_for_everyone()
-        #     unwrapped_model = accelerator.unwrap_model(model)
-        #     unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
-        #     if accelerator.is_main_process:
-        #         tokenizer.save_pretrained(args.output_dir)
-        #         repo.push_to_hub(
-        #             commit_message=f"Training in progress epoch {epoch}", blocking=False, auto_lfs_prune=True
-        #         )
+            # if args.push_to_hub and epoch < args.num_train_epochs - 1:
+            #     accelerator.wait_for_everyone()
+            #     unwrapped_model = accelerator.unwrap_model(model)
+            #     unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
+            #     if accelerator.is_main_process:
+            #         tokenizer.save_pretrained(args.output_dir)
+            #         repo.push_to_hub(
+            #             commit_message=f"Training in progress epoch {epoch}", blocking=False, auto_lfs_prune=True
+            #         )
 
-        if args.checkpointing_steps == "epoch":
-            output_dir = f"step_{completed_steps}"
-            if args.output_dir is not None:
-                output_dir = os.path.join(args.output_dir, output_dir)
-            accelerator.save_state(output_dir)
+            if args.checkpointing_steps == "epoch":
+                output_dir = f"step_{completed_steps}"
+                if args.output_dir is not None:
+                    output_dir = os.path.join(args.output_dir, output_dir)
+                accelerator.save_state(output_dir)
 
     if args.output_dir is not None:
         accelerator.wait_for_everyone()
