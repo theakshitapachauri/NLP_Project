@@ -10,4 +10,4 @@ setup(
     install_requires=install_requires,
 )
 
-python -m nltk.downloader "punkt"
+
