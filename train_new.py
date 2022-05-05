@@ -56,7 +56,8 @@ from transformers import (
 from transformers.utils.versions import require_version
 
 from tokenizers import AddedToken
-
+import gc
+from os import path
 
 logger = logging.getLogger(__name__)
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/translation/requirements.txt")
@@ -139,8 +140,6 @@ def parse_args():
         default=True,
         help="Whether to ignore the tokens corresponding to " "padded labels in the loss computation or not.",
     )
-    parser.add_argument("--source_lang", type=str, default=None, help="Source language id for translation.")
-    parser.add_argument("--target_lang", type=str, default=None, help="Target language id for translation.")
     parser.add_argument(
         "--source_prefix",
         type=str,
@@ -229,7 +228,7 @@ def parse_args():
     parser.add_argument(
         "--lr_scheduler_type",
         type=SchedulerType,
-        default="constant",
+        default="linear",
         help="The scheduler type to use.",
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
     )
@@ -245,11 +244,6 @@ def parse_args():
         help="Model type to use if training from scratch.",
         choices=MODEL_TYPES,
     )
-    #parser.add_argument("--push_to_hub", action="store_true", help="Whether or not to push the model to the Hub.")
-    #parser.add_argument(
-    #    "--hub_model_id", type=str, help="The name of the repository to keep in sync with the local `output_dir`."
-    #)
-    #parser.add_argument("--hub_token", type=str, help="The token to use to push to the Model Hub.")
     parser.add_argument(
         "--checkpointing_steps",
         type=str,
@@ -284,9 +278,6 @@ def parse_args():
     if args.validation_file is not None:
         extension = args.validation_file.split(".")[-1]
         assert extension in ["csv", "json"], "`validation_file` should be a csv or a json file."
-
-    #if args.push_to_hub:
-    #    assert args.output_dir is not None, "Need an `output_dir` to create a repo when `--push_to_hub` is passed."
 
     return args
 
@@ -326,31 +317,10 @@ def main():
 
     # Handle the repository creation
     if accelerator.is_main_process:
-        # if args.push_to_hub:
-        #     if args.hub_model_id is None:
-        #         repo_name = get_full_repo_name(Path(args.output_dir).name, token=args.hub_token)
-        #     else:
-        #         repo_name = args.hub_model_id
-        #     repo = Repository(args.output_dir, clone_from=repo_name)
-        #
-        #     with open(os.path.join(args.output_dir, ".gitignore"), "w+") as gitignore:
-        #         if "step_*" not in gitignore:
-        #             gitignore.write("step_*\n")
-        #         if "epoch_*" not in gitignore:
-        #             gitignore.write("epoch_*\n")
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
     if args.dataset_name is not None:
         # Downloading and loading a dataset from the hub.
         raw_datasets = load_dataset(args.dataset_name, args.dataset_config_name)
@@ -362,9 +332,6 @@ def main():
             data_files["validation"] = args.validation_file
         extension = args.train_file.split(".")[-1]
         raw_datasets = load_dataset(extension, data_files=data_files)
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
-
     # Load pretrained model and tokenizer
     #
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
@@ -399,16 +366,6 @@ def main():
 
     model.resize_token_embeddings(len(tokenizer))
 
-    # Set decoder_start_token_id
-    if model.config.decoder_start_token_id is None and isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
-        assert (
-            args.target_lang is not None and args.source_lang is not None
-        ), "mBart requires --target_lang and --source_lang"
-        if isinstance(tokenizer, MBartTokenizer):
-            model.config.decoder_start_token_id = tokenizer.lang_code_to_id[args.target_lang]
-        else:
-            model.config.decoder_start_token_id = tokenizer.convert_tokens_to_ids(args.target_lang)
-
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
@@ -417,19 +374,6 @@ def main():
     # Preprocessing the datasets.
     # First we tokenize all the texts.
     column_names = raw_datasets["train"].column_names
-
-    # For translation we set the codes of our source and target languages (only useful for mBART, the others will
-    # ignore those attributes).
-    #if isinstance(tokenizer, (MBartTokenizer, MBartTokenizerFast)):
-    #    if args.source_lang is not None:
-    #        tokenizer.src_lang = args.source_lang
-    #    if args.target_lang is not None:
-    #        tokenizer.tgt_lang = args.target_lang
-
-    # Get the language codes for input/target.
-    #source_lang = args.source_lang.split("_")[0]
-    #target_lang = args.target_lang.split("_")[0]
-
     padding = "max_length" if args.pad_to_max_length else False
 
     # Temporarily set max_target_length for training.
@@ -512,8 +456,10 @@ def main():
 
     # Scheduler and math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_eval = len(eval_dataloader)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
+        max_num_eval = (math.ceil(args.num_train_epochs/args.eval_every_step)+1) * num_update_steps_per_eval
     else:
         args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
@@ -561,9 +507,11 @@ def main():
     logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+    logger.info(f"  Eval every step = {args.eval_every_step}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
+    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process, desc="TRAINING")
+    progress_bar2 = tqdm(range(max_num_eval), disable=not accelerator.is_local_main_process,desc="EVALUATING")
     completed_steps = 0
 
     # Potentially load in the weights and states from a previous save
@@ -591,6 +539,7 @@ def main():
             total_loss = 0
         for step, batch in enumerate(train_dataloader):
             torch.cuda.empty_cache()
+            gc.collect()
             # We need to skip steps until we reach the resumed step
             if args.resume_from_checkpoint and epoch == 0 and step < resume_step:
                 continue
@@ -634,12 +583,13 @@ def main():
             "max_length": args.val_max_target_length if args is not None else config.max_length,
             "num_beams": args.num_beams,
         }
-        if epoch % args.eval_every_step == 0:
+        if (epoch % args.eval_every_step == 0) or (epoch == (args.num_train_epochs-1)) :
             samples_seen = 0
             my_decoded_preds = []
             for step, batch in enumerate(eval_dataloader):
                 with torch.no_grad():
                     torch.cuda.empty_cache()
+                    gc.collect()
                     generated_tokens = accelerator.unwrap_model(model).generate(
                         batch["input_ids"],
                         attention_mask=batch["attention_mask"],
@@ -677,7 +627,12 @@ def main():
                         my_decoded_preds.append(dpred)
 
                     metric.add_batch(predictions=decoded_preds, references=decoded_labels)
-            file1 = open("pred_example.txt", "w")
+                    progress_bar2.update(1)
+            if args.output_dir is not None:
+                filepath = os.path.join(args.output_dir,"pred_example.txt")
+            else:
+                filepath = "pred_example.txt"
+            file1 = open(filepath, "w")
             for dpred in my_decoded_preds:
                 file1.writelines(dpred)
                 if dpred != decoded_preds[-1]:
@@ -688,7 +643,6 @@ def main():
             wandb.log(
                 {
                     "eval/bleu": eval_metric["score"],
-                    #"eval/generation_length": eval_results["generation_length"],
                 },
                 step=completed_steps,
             )
@@ -696,22 +650,12 @@ def main():
                 accelerator.log(
                     {"blue": eval_metric["score"], "train_loss": total_loss, "epoch": epoch, "step": completed_steps},
                 )
-
-            # if args.push_to_hub and epoch < args.num_train_epochs - 1:
-            #     accelerator.wait_for_everyone()
-            #     unwrapped_model = accelerator.unwrap_model(model)
-            #     unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
-            #     if accelerator.is_main_process:
-            #         tokenizer.save_pretrained(args.output_dir)
-            #         repo.push_to_hub(
-            #             commit_message=f"Training in progress epoch {epoch}", blocking=False, auto_lfs_prune=True
-            #         )
-
             if args.checkpointing_steps == "epoch":
                 output_dir = f"step_{completed_steps}"
                 if args.output_dir is not None:
                     output_dir = os.path.join(args.output_dir, output_dir)
                 accelerator.save_state(output_dir)
+                tokenizer.save_pretrained(output_dir)
 
     if args.output_dir is not None:
         accelerator.wait_for_everyone()
@@ -719,8 +663,6 @@ def main():
         unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
         if accelerator.is_main_process:
             tokenizer.save_pretrained(args.output_dir)
-            #if args.push_to_hub:
-            #    repo.push_to_hub(commit_message="End of training", auto_lfs_prune=True)
         with open(os.path.join(args.output_dir, "all_results.json"), "w") as f:
             json.dump({"eval_bleu": eval_metric["score"]}, f)
         #wandb.save(os.path.join(args.output_dir, "*"))
