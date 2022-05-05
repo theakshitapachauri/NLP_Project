@@ -2,7 +2,7 @@
 
 **SETUP**
 
-setup is very simple.
+The setup is very simple.
 we have used **setup.py** and **requirements.txt** as a wrapper around the different packages needed for this script.
 
 on the terminal run
@@ -10,12 +10,12 @@ on the terminal run
 
 **TRAINING**
 
-training is done using our script **train_new.py**
+Training is done using our script **train_new.py**, Please use the below command to train the model.
 
 **python train_new.py    --model_name_or_path t5-base  --source_prefix "translate to SQL: " --dataset_name spider  --output_dir t5_base_spider  --per_
 device_train_batch_size=32     --per_device_eval_batch_size=32     --predict_with_generate True --num_train_epochs 15 --preprocessing_num_workers 8 --gradient_accumulation_steps 16 --eval_every_step 3**
 
-The most important args that are needed for our setup
+The most important args that are needed for our setup in order to train the model are:
 
 **--model_name** <t5-small/t5-base/t5-large/t5-3b> this will fetch the respective model from the huggingface library.
 
