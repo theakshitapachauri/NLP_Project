@@ -42,7 +42,7 @@ The most important args that are needed for our setup in order to train the mode
 
 The evaluation is done using **evaluation.py** which in turn calls **process_sql.py**.
 
-In order to setup this step we need to do one additional setup for nltk dataset. Run the below cmd for the setup: 
+In order to evaluate we need to do one additional step to download nltk dataset. Run the below cmd for the setup: 
 
     python -m nltk.downloader all
 
@@ -56,7 +56,7 @@ unzipping the spider dataset is needed to run this evaluation script. The evalua
 Spider dataset can be found here:-
     https://yale-lily.github.io/spider
 
-Run the below cmd for partial evaluation:
+Run the below cmd for component matching evaluation:
 
     python evaluation.py \
           --gold gold_example.txt \
