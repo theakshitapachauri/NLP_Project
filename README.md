@@ -53,8 +53,10 @@ or if you are using a notebook/jupyter/google colab then use
 
 unzipping the spider dataset is needed to run this evaluation script. The evaluation script needs to access the database schemas/db and its tables for the questions. We have included the zip but if its corrupted please use the below link for downloading the latest spider dataset.
 
-spider dataset can be found here:-
+Spider dataset can be found here:-
     https://yale-lily.github.io/spider
+
+Run the below cmd for partial evaluation:
 
     python evaluation.py \
           --gold gold_example.txt \
@@ -65,7 +67,7 @@ spider dataset can be found here:-
 
 The **gold_example.txt** contains all the 1034 golden queries from the spider dataset from huggingface library. Each line is a query corresponding to the spider validation datset split. for dexterity purposes we do not shuffle the validation set during our evaluation/prediction phase.
 
-here are some lines from the file just to give us an idea of what it contains.
+Here are some lines from the file just to give us an idea of what it contains.
 
     SELECT country FROM singer WHERE age  >  40 INTERSECT SELECT country FROM singer WHERE age  <  30	concert_singer
 
@@ -75,9 +77,9 @@ here are some lines from the file just to give us an idea of what it contains.
 
     SELECT T2.concert_name ,  T2.theme ,  count(*) FROM singer_in_concert AS T1 JOIN concert AS T2 ON T1.concert_id  =  T2.concert_id GROUP BY T2.concert_id	concert_singer
 
-the **pred_example.txt** file will be created during training/evaluation and should be inside the **--output_dir** after your training has been completed.
+The **pred_example.txt** file will be created during training/evaluation and should be inside the **--output_dir** after your training has been completed.
 
-this is used to then match up with the **gold_example.txt** to compute all the different metrices for evalauation.
+This is used to then match up with the **gold_example.txt** to compute all the different metrices for evalauation.
 
 
 
