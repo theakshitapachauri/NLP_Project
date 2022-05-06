@@ -6,14 +6,26 @@ The setup is very simple.
 we have used **setup.py** and **requirements.txt** as a wrapper around the different packages needed for this script.
 
 on the terminal run
-**pip install -e .**
+
+    pip install -e .
 
 **TRAINING**
 
-Training is done using our script **train_new.py**, Please use the below command to train the model.
+Training is done using our script **train_new.py**, 
 
-**python train_new.py    --model_name_or_path t5-base  --source_prefix "translate to SQL: " --dataset_name spider  --output_dir t5_base_spider  --per_
-device_train_batch_size=32     --per_device_eval_batch_size=32     --predict_with_generate True --num_train_epochs 15 --preprocessing_num_workers 8 --gradient_accumulation_steps 16 --eval_every_step 3**
+Shown below is an example command line that we used for our training.
+
+    python train_new.py    --model_name_or_path t5-base \
+                           --source_prefix "translate to SQL: " \
+                           --dataset_name spider  \
+                           --output_dir t5_base_spider \
+                           --per_device_train_batch_size=32  \
+                           --per_device_eval_batch_size=32    \
+                           --predict_with_generate True \
+                           --num_train_epochs 15 \
+                           --preprocessing_num_workers 8 \
+                           --gradient_accumulation_steps 16 \
+                           --eval_every_step 3
 
 The most important args that are needed for our setup in order to train the model are:
 
@@ -23,34 +35,35 @@ The most important args that are needed for our setup in order to train the mode
 
 **--output_dir** <t5_small_spider_train> this is the output directory where we save the model and checkpoint if neccesary.
 
-//add a example command line
+**--dataset_name** <spider/cosql> We have used spider as our golden dataset. but the script can be used for cosql as well. We will need to create the gold_example.txt if we want to use cosql.
+
 
 **EVALUATION**
 
-evaluation is done using **evaluation.py** which in turn calls **process_sql.py**
+The evaluation is done using **evaluation.py** which in turn calls **process_sql.py**.
 
-to setup this step we need to do one additional setup for nltk dataset.
+In order to setup this step we need to do one additional setup for nltk dataset. Run the below cmd for the setup: 
 
-**python -m nltk.downloader all**
+    python -m nltk.downloader all
 
 or if you are using a notebook/jupyter/google colab then use
 
-**import nltk**
+    import nltk
+    nltk.download("punkt")
 
-**nltk.download("punkt")**
+unzipping the spider dataset is needed to run this evaluation script. The evaluation script needs to access the database schemas/db and its tables for the questions. We have included the zip but if its corrupted please use the below link for downloading the latest spider dataset.
 
-**!python /content/drive/My\ Drive/t5-text-to-sql-main/evaluation.py \
- --gold /content/drive/My\ Drive/t5-text-to-sql-main/gold_example.txt \
- --pred pred_example.txt\
- --etype all \
- --db /content/drive/My\ Drive/spider/database \
- --table /content/drive/My\ Drive/spider/tables.json**
+spider dataset can be found here:-
+    https://yale-lily.github.io/spider
 
-the **gold_example.txt** contains all the 1034 golden queries from the spider dataset from huggingface library.
+    python evaluation.py \
+          --gold gold_example.txt \
+          --pred pred_example.txt \
+          --etype all \
+          --db /content/drive/My\ Drive/spider/database \
+          --table /content/drive/My\ Drive/spider/tables.json
 
-Each line is a query corresponding to the spider validation datset split.
-
-for dexterity purposes we do not shuffle the validation set during our evaluation/prediction phase.
+The **gold_example.txt** contains all the 1034 golden queries from the spider dataset from huggingface library. Each line is a query corresponding to the spider validation datset split. for dexterity purposes we do not shuffle the validation set during our evaluation/prediction phase.
 
 here are some lines from the file just to give us an idea of what it contains.
 
